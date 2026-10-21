@@ -6,10 +6,12 @@
     <title>海巡署東部分署115年巡防情報業務輔訪線上測驗系統</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- html2pdf.js CDN (用於匯出 PDF 與截圖) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen flex items-center justify-center p-3 sm:p-6">
 
-    <!-- 主容器：針對平板與桌面優化寬度與圓角邊距 -->
+    <!-- 主容器 -->
     <div class="max-w-4xl w-full bg-white rounded-2xl shadow-xl p-6 sm:p-10 my-auto">
 
         <!-- 第一部分：基本資料填寫頁 -->
@@ -54,7 +56,6 @@
                 </div>
             </div>
 
-            <!-- 題目區塊：加大行距與觸控選項空間 -->
             <div id="questions-container" class="space-y-6">
                 <!-- 動態載入題目 -->
             </div>
@@ -66,18 +67,45 @@
             </div>
         </div>
 
-        <!-- 第三部分：成績結果頁 -->
-        <div id="result-section" class="hidden text-center py-10">
-            <h2 class="text-2xl sm:text-3xl font-bold text-slate-800 mb-6">測驗已結束</h2>
-            <div class="bg-slate-50 p-8 rounded-2xl border border-slate-200 inline-block w-full max-w-lg mb-8 shadow-inner">
-                <p class="text-slate-600 mb-3 text-base">受測人員：<span id="res-user" class="font-bold text-slate-800"></span></p>
-                <p class="text-slate-600 mb-2 text-base">測驗成績：</p>
-                <div class="text-6xl font-extrabold text-blue-600 mb-3"><span id="res-score">0</span> 分</div>
-                <p class="text-sm sm:text-base text-slate-500 font-medium" id="res-detail"></p>
+        <!-- 第三部分：成績與詳細成果頁 -->
+        <div id="result-section" class="hidden">
+            <!-- 匯出範圍容器 (PDF 與截圖會抓取此區塊) -->
+            <div id="printable-area" class="bg-white p-2 sm:p-4">
+                <div class="text-center pb-6 border-b">
+                    <h2 class="text-2xl sm:text-3xl font-bold text-slate-800 mb-2">測驗成果報告</h2>
+                    <p class="text-slate-500 text-sm">海巡署東部分署115年巡防情報業務輔訪線上測驗</p>
+                </div>
+
+                <!-- 成績總覽卡片 -->
+                <div class="my-6 bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center shadow-inner">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm sm:text-base text-slate-600 mb-4">
+                        <div>單位：<span id="res-unit" class="font-bold text-slate-800"></span></div>
+                        <div>職稱：<span id="res-title" class="font-bold text-slate-800"></span></div>
+                        <div>姓名：<span id="res-name" class="font-bold text-slate-800"></span></div>
+                    </div>
+                    <div class="text-5xl sm:text-6xl font-extrabold text-blue-600 mb-2"><span id="res-score">0</span> <span class="text-2xl font-bold">分</span></div>
+                    <p class="text-sm sm:text-base text-slate-600 font-medium" id="res-detail"></p>
+                </div>
+
+                <!-- 各題詳細作答檢視清單 -->
+                <div class="mt-8">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4 border-l-4 border-blue-600 pl-3">各題作答詳細檢視</h3>
+                    <div id="review-container" class="space-y-4">
+                        <!-- 動態插入答題檢視 -->
+                    </div>
+                </div>
             </div>
-            <div>
-                <button onclick="location.reload()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-xl transition duration-200 text-base shadow">
-                    重新測驗
+
+            <!-- 操作按鈕區 -->
+            <div class="mt-8 pt-6 border-t flex flex-wrap justify-center gap-3">
+                <button onclick="exportPDF()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-3 rounded-xl transition duration-200 text-sm sm:text-base shadow flex items-center gap-2">
+                    📥 下載成績單 PDF
+                </button>
+                <button onclick="exportScreenshot()" class="bg-teal-600 hover:bg-teal-700 text-white font-semibold px-6 py-3 rounded-xl transition duration-200 text-sm sm:text-base shadow flex items-center gap-2">
+                    📸 下載成果截圖
+                </button>
+                <button onclick="location.reload()" class="bg-slate-600 hover:bg-slate-700 text-white font-semibold px-6 py-3 rounded-xl transition duration-200 text-sm sm:text-base shadow">
+                    🔄 重新測驗
                 </button>
             </div>
         </div>
@@ -85,11 +113,16 @@
     </div>
 
     <script>
-        // ★ 請填入您的 Google Apps Script 網頁應用程式網址
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbwMMIEtRg6j7xZleKDyxmHHpvflsIYpLXqnI954Yl9COm5RcECUY8uaw_FZoMXqS46NIA/exec";
+        // 題庫讀取專用 GAS 網址
+        const QUIZ_GAS_URL = "https://script.google.com/macros/s/AKfycbwMMIEtRg6j7xZleKDyxmHHpvflsIYpLXqnI954Yl9COm5RcECUY8uaw_FZoMXqS46NIA/exec";
+        
+        // 成績寫入專用 GAS 網址
+        const SCORE_GAS_URL = "https://script.google.com/macros/s/AKfycbxuJDj72g_CVQ4am3PVr2wVdA4ZJQZOBbjMf1Mw9avp4VlduNXSKvTzZ1XVzZO7WvlwiA/exec";
 
         let userInfo = {};
         let quizData = [];
+        let userAnswers = {}; 
+        let detailedResults = []; 
         let timerInterval;
         let timeLeft = 600; // 10 分鐘 (600秒)
         let quizStarted = false;
@@ -118,9 +151,8 @@
             loadQuestionsFromGAS();
         });
 
-        // 透過 GAS 安全讀取題庫
         function loadQuestionsFromGAS() {
-            fetch(GAS_URL)
+            fetch(QUIZ_GAS_URL)
                 .then(response => response.json())
                 .then(rawData => {
                     let validQuestions = rawData.filter(row => row['題目'] && row['選項A'] && row['正確答案']);
@@ -131,7 +163,6 @@
                         return;
                     }
 
-                    // 亂數隨機洗牌並取前 20 題
                     validQuestions.sort(() => Math.random() - 0.5);
                     quizData = validQuestions.slice(0, 20);
 
@@ -231,43 +262,117 @@
 
             let correctCount = 0;
             let totalQ = quizData.length;
+            detailedResults = [];
 
             quizData.forEach((q, index) => {
                 const selected = document.querySelector(`input[name="q_${index}"]:checked`);
-                if (selected) {
-                    let userAns = selected.value.trim().toUpperCase();
-                    let correctAns = q['正確答案'].trim().toUpperCase();
+                let userAns = selected ? selected.value.trim().toUpperCase() : "未作答";
+                let correctAns = q['正確答案'].trim().toUpperCase();
+                let isCorrect = false;
+
+                if (userAns !== "未作答") {
                     if (correctAns.includes(userAns) || userAns === correctAns.charAt(0)) {
                         correctCount++;
+                        isCorrect = true;
                     }
                 }
+
+                detailedResults.push({
+                    qIndex: index + 1,
+                    question: q['題目'],
+                    userAnswer: userAns,
+                    correctAnswer: q['正確答案'],
+                    isCorrect: isCorrect
+                });
             });
 
-            let score = Math.round((correctCount / totalQ) * 100);
+            let score = correctCount * 5; // 每題 5 分，總分 100 分
 
             quizSection.classList.add('hidden');
             resultSection.classList.remove('hidden');
-            document.getElementById('res-user').innerText = `${userInfo.unit} / ${userInfo.title} / ${userInfo.name}`;
+            document.getElementById('res-unit').innerText = userInfo.unit;
+            document.getElementById('res-title').innerText = userInfo.title;
+            document.getElementById('res-name').innerText = userInfo.name;
             document.getElementById('res-score').innerText = score;
-            document.getElementById('res-detail').innerText = `共作答 ${totalQ} 題，答對 ${correctCount} 題`;
+            document.getElementById('res-detail').innerText = `共作答 ${totalQ} 題，答對 ${correctCount} 題（每題 5 分）`;
 
-            sendScoreToSheet(score);
+            renderReviewList();
+            sendScoreToSheet(score, detailedResults);
         }
 
-        function sendScoreToSheet(score) {
+        function renderReviewList() {
+            let reviewHtml = '';
+            detailedResults.forEach((item) => {
+                let statusBadge = item.isCorrect 
+                    ? `<span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-1 rounded-full">正確 (+5分)</span>`
+                    : `<span class="bg-red-100 text-red-800 text-xs font-bold px-2.5 py-1 rounded-full">錯誤 (0分)</span>`;
+
+                let qData = quizData[item.qIndex - 1];
+
+                reviewHtml += `
+                    <div class="bg-slate-50 p-4 sm:p-5 rounded-xl border ${item.isCorrect ? 'border-emerald-200' : 'border-red-200'}">
+                        <div class="flex justify-between items-start gap-2 mb-2">
+                            <p class="font-bold text-slate-800 text-sm sm:text-base">${item.qIndex}. ${item.question}</p>
+                            <div>${statusBadge}</div>
+                        </div>
+                        <div class="text-xs sm:text-sm space-y-1 mt-2">
+                            <p class="text-slate-600">A. ${qData['選項A'] || ''}</p>
+                            <p class="text-slate-600">B. ${qData['選項B'] || ''}</p>
+                            <p class="text-slate-600">C. ${qData['選項C'] || ''}</p>
+                            <p class="text-slate-600">D. ${qData['選項D'] || ''}</p>
+                        </div>
+                        <div class="mt-3 pt-2 border-t border-slate-200 flex flex-wrap gap-4 text-xs sm:text-sm font-semibold">
+                            <span class="${item.isCorrect ? 'text-emerald-600' : 'text-red-600'}">您的選擇：${item.userAnswer}</span>
+                            <span class="text-blue-600">正確答案：${item.correctAnswer}</span>
+                        </div>
+                    </div>
+                `;
+            });
+            document.getElementById('review-container').innerHTML = reviewHtml;
+        }
+
+        function exportPDF() {
+            const element = document.getElementById('printable-area');
+            const opt = {
+                margin:       10,
+                filename:     `測驗成績單_${userInfo.unit}_${userInfo.name}.pdf`,
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+            html2pdf().from(element).set(opt).save();
+        }
+
+        function exportScreenshot() {
+            const element = document.getElementById('printable-area');
+            element.style.background = "#ffffff";
+            
+            html2pdf().from(element).outputPdf('canvas').then(canvas => {
+                let imageURL = canvas.toDataURL('image/png');
+                let link = document.createElement('a');
+                link.href = imageURL;
+                link.download = `測驗成果截圖_${userInfo.unit}_${userInfo.name}.png`;
+                link.click();
+            });
+        }
+
+        function sendScoreToSheet(score, details) {
             const payload = {
                 unit: userInfo.unit,
                 title: userInfo.title,
                 name: userInfo.name,
                 score: score,
-                timeStr: new Date().toLocaleString()
+                timeStr: new Date().toLocaleString(),
+                details: details
             };
 
-            fetch(GAS_URL, {
+            fetch(SCORE_GAS_URL, {
                 method: 'POST',
                 mode: 'no-cors',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
+            }).then(() => {
+                console.log("成績與詳細作答紀錄已成功送出至雲端試算表");
             }).catch(err => {
                 console.error("成績送出失敗", err);
             });
